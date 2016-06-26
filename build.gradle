@@ -1,0 +1,22 @@
+group 'com.o3.lab'
+version '1.0-SNAPSHOT'
+
+apply plugin: 'scala'
+
+repositories {
+    mavenCentral()
+}
+
+task uberjar(type: Jar, dependsOn: [':compileScala', ':processResources']) {
+    from files(sourceSets.main.output.classesDir)
+    from configurations.runtime.asFileTree.files.collect { zipTree(it) }
+
+    manifest {
+        attributes 'Main-Class': 'CsvAnalyzer'
+    }
+}
+
+dependencies {
+    compile 'org.apache.spark:spark-core_2.11:1.6.0'
+}
+
