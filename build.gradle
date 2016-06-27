@@ -20,5 +20,7 @@ dependencies {
     compile 'org.apache.spark:spark-core_2.11:1.6.0'
     compile group: 'joda-time', name: 'joda-time', version: '2.9.4'
     compile group: 'org.joda', name: 'joda-convert', version: '1.8.1'
+    compile group: 'com.fasterxml.jackson.module', name: 'jackson-module-scala_2.11', version: '2.7.4'
+
 }
 

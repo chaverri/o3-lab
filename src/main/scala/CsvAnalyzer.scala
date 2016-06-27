@@ -1,5 +1,8 @@
+import java.io.FileWriter
 import java.text.SimpleDateFormat
 
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.module.scala.DefaultScalaModule
 import org.apache.spark.{SparkConf, SparkContext}
 import org.slf4j.LoggerFactory
 
@@ -13,6 +16,10 @@ object CsvAnalyzer {
 
   val latitudeRegexPattern = "^[0-9]{4}$"
   val longitudeRegexPattern = "^[0-9]{5}-[0-9]{4}$"
+  val BINARY_CARDINALITY = 2;
+
+  val mapper = new ObjectMapper()
+  mapper.registerModule(DefaultScalaModule)
 
 
   def main(args: Array[String]): Unit = {
@@ -22,8 +29,15 @@ object CsvAnalyzer {
     val conf = new SparkConf().setAppName("CSV Analyzer")
     val sc = new SparkContext(conf)
 
+    require(args.length == 2, "The filename and date format should be provided")
+
     val fileName = args(0)
+
+    require(fileName != null && fileName.length > 0, "The filename can not be empty")
+
     val dateFormat = args(1)
+
+    require(dateFormat != null && dateFormat.length > 0, "The dateFormat can not be empty")
 
     val simpleDateFormat: SimpleDateFormat = new SimpleDateFormat(dateFormat)
     simpleDateFormat.setLenient(true);
@@ -49,7 +63,10 @@ object CsvAnalyzer {
         observation.zipWithIndex.map { case (observationValue, index) => (index, observationValue) }
       }.groupBy { case (index, value) => index }
 
-    def determineType(value: String): DataTypes = {
+    def determineType(value: String, cardinality: Integer): DataTypes = {
+
+      if (cardinality == BINARY_CARDINALITY)
+        return Binary
 
       if (value.matches(latitudeRegexPattern) || value.matches(longitudeRegexPattern)) {
         return Geo
@@ -62,7 +79,7 @@ object CsvAnalyzer {
 
       Try(simpleDateFormat.parse(value)) match {
         case Success(i) => return Date
-        case Failure(i) => println("Invalid date: " + value)
+        case Failure(i) =>
       }
 
       return Categorical;
@@ -73,22 +90,21 @@ object CsvAnalyzer {
                           .map{case (index,(featureName,values)) =>  (featureName, values.map{case (featureIndex, value) => value}.par)} //simplify the data structure
                           .cache()
 
-    //valuesByFeature.foreach(println)
-
     val results = valuesByFeature.map { case (featureName, _observationsByFeature) =>
 
       val observations = _observationsByFeature.size
 
-      val foundTypes = _observationsByFeature.map(value => determineType(value)).toSet
-
       val cardinality = _observationsByFeature.toSet.size;
+
+      val foundTypes = _observationsByFeature.map(value => determineType(value, cardinality).name).toSet
 
       (featureName, observations, cardinality, foundTypes)
 
     }.collect()
 
+    val fileWriter = new FileWriter(fileName + ".statistics.json")
 
-    results.foreach { case (featureName, observationCount, cardiniality, foundtTypes) =>
+    /*results.foreach { case (featureName, observationCount, cardiniality, foundtTypes) =>
       println("--------------------------------------")
       println("Feature name: " + featureName)
       println("Cardinality: " + cardiniality)
@@ -96,19 +112,32 @@ object CsvAnalyzer {
       println("Types: " + foundtTypes)
       println("--------------------------------------")
       println()
-    }
+    }*/
+
+    mapper.writeValue(fileWriter, results.map { case (featureName, observationCount, cardiniality, foundtTypes) =>
+      new FeatureInfo(name = featureName,
+        cardinality = cardiniality,
+        observations = observationCount,
+        dataTypes = foundtTypes.seq)
+    })
+
+    fileWriter.close()
 
   }
 
 
-  trait DataTypes
+  trait DataTypes { def name: String }
 
-  case object Numeric extends DataTypes
+  case object Binary extends DataTypes { val name = "Binary" }
 
-  case object Geo extends DataTypes
+  case object Numeric extends DataTypes { val name = "Numeric" }
 
-  case object Date extends DataTypes
+  case object Geo extends DataTypes { val name = "Geo" }
 
-  case object Categorical extends DataTypes
+  case object Date extends DataTypes { val name = "Date" }
+
+  case object Categorical extends DataTypes { val name = "Categorical" }
+
+  case class FeatureInfo(name: String, cardinality: Integer, observations: Integer, dataTypes: Set[String])
 
 }
